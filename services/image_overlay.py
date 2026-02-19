@@ -42,15 +42,29 @@ def overlay_quote(image_path, quote, output_path=None):
         font_size = 42
         wrap_width = 30
 
-    # Load font
-    try:
-        font = ImageFont.truetype(config.FONT_PATH, size=font_size)
-    except (IOError, OSError):
+    # Load font — try project font, then common Linux/Windows system paths
+    font = None
+    font_candidates = [
+        config.FONT_PATH,
+        # Linux (GitHub Actions, Ubuntu)
+        "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Bold.ttf",
+        "/usr/share/fonts/truetype/roboto/Roboto-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        # Windows
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ]
+    for candidate in font_candidates:
         try:
-            font = ImageFont.truetype("arial.ttf", size=font_size)
+            font = ImageFont.truetype(candidate, size=font_size)
+            break
         except (IOError, OSError):
-            font = ImageFont.load_default()
-            print("⚠️ Using default font.")
+            continue
+    if font is None:
+        print(f"⚠️ No TTF font found — text will be tiny! Font size: {font_size}")
+        font = ImageFont.load_default()
 
     # Wrap text
     wrapped = textwrap.fill(quote, width=wrap_width)
