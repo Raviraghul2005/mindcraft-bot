@@ -1,0 +1,17 @@
+# Environment variables and secrets
+.env
+credentials.json
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated content
+images/
+quote_image.jpg
+quote_video_with_audio.mp4
+mindcraft_temp/
+
+# IDE
+.vscode/
+.Deployment_Guide.md
