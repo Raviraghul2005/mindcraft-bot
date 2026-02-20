@@ -103,6 +103,7 @@ def main():
     print()
     
     # ---- Step 7: Cleanup ----
+    # Delete Drive file AFTER Instagram is done (it needs the URL during processing)
     print("🧹 Cleaning up...")
     drive_upload.delete_video(file_id)
     
@@ -116,10 +117,16 @@ def main():
             pass
     
     # ---- Step 8: Mark complete ----
-    if ig_success:
+    # Mark complete if EITHER platform succeeded (don't block on one failing)
+    if ig_success or yt_id:
         sheets.mark_complete(sheet, row_index)
     else:
-        print("⚠️ Instagram upload may have failed. Row NOT marked complete.")
+        print("⚠️ Both uploads failed. Row NOT marked complete.")
+    
+    if not ig_success:
+        print("⚠️ Instagram upload failed — check IG credentials and video URL.")
+    if not yt_id:
+        print("⚠️ YouTube upload failed — check YT credentials.")
     
     print()
     print("=" * 50)

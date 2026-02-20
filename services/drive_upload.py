@@ -63,7 +63,12 @@ def _upload_to_drive(video_path):
         body={"type": "anyone", "role": "reader"},
     ).execute()
     
-    video_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    # Use webContentLink for direct download (better for Instagram API)
+    # The webContentLink provides a URL that doesn't require extra redirects
+    video_url = file.get("webContentLink")
+    if not video_url:
+        # Fallback: add confirm=t to bypass consent screen for large files
+        video_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
     print(f"   Uploaded to Drive: {video_url}")
     return file_id, video_url
 
