@@ -15,4 +15,6 @@ music_history.json
 
 # IDE
 .vscode/
-.Deployment_Guide.md
+
+DEPLOYMENT_GUIDE.md
+PROJECT_INFO.md
