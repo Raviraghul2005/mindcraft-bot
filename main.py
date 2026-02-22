@@ -74,7 +74,13 @@ def main():
     
     # ---- Step 4: Create video ----
     print("🎬 Creating video with effects and music...")
-    music_track = video.get_music_track(row_index)
+    # Pass sheets client for music history persistence (works on GitHub Actions)
+    sheets_client = None
+    try:
+        sheets_client = sheets.get_client()
+    except Exception:
+        pass  # Will fall back to local JSON tracking
+    music_track = video.get_music_track(row_index, sheets_client=sheets_client)
     video_path = video.create_video(quote_image_path, music_track)
     print()
     

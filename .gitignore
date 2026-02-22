@@ -11,6 +11,7 @@ images/
 quote_image.jpg
 quote_video_with_audio.mp4
 mindcraft_temp/
+music_history.json
 
 # IDE
 .vscode/

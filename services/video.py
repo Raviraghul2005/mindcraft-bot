@@ -13,6 +13,7 @@ Effects:
 """
 import os
 import glob
+import json
 import numpy as np
 from PIL import Image
 from moviepy.editor import (
@@ -24,8 +25,38 @@ import config
 
 import random
 
-def get_music_track(row_index):
-    """Select a random music track from the music directory."""
+# Path to the music history tracking file (project root)
+MUSIC_HISTORY_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "music_history.json")
+
+
+def _load_music_history():
+    """Load the list of recently used track filenames from disk."""
+    if os.path.exists(MUSIC_HISTORY_FILE):
+        try:
+            with open(MUSIC_HISTORY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("used_tracks", [])
+        except (json.JSONDecodeError, IOError):
+            return []
+    return []
+
+
+def _save_music_history(used_tracks):
+    """Save the list of used track filenames to disk."""
+    with open(MUSIC_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump({"used_tracks": used_tracks}, f, indent=2, ensure_ascii=False)
+
+
+def get_music_track(row_index, sheets_client=None):
+    """Select a music track using round-robin rotation.
+    
+    Picks randomly from tracks that haven't been used yet.
+    Once all tracks have been played, resets and starts over.
+    This ensures every track gets used before any repeats.
+    
+    Uses Google Sheets for persistence (works on GitHub Actions).
+    Falls back to local JSON if Sheets is unavailable.
+    """
     music_dir = config.MUSIC_DIR
     tracks = sorted(glob.glob(os.path.join(music_dir, "*")))
     tracks = [t for t in tracks if t.lower().endswith(('.mp3', '.wav', '.mpeg', '.ogg', '.m4a'))]
@@ -33,9 +64,53 @@ def get_music_track(row_index):
     if not tracks:
         raise FileNotFoundError(f"❌ No music files found in {music_dir}")
 
-    # Pick a random track
-    track = random.choice(tracks)
-    print(f"🎵 Selected track: {os.path.basename(track)}")
+    # Get all track filenames (basenames for comparison)
+    all_filenames = [os.path.basename(t) for t in tracks]
+
+    # Try Google Sheets first (persists across CI runs), fall back to local JSON
+    use_sheets = False
+    if sheets_client:
+        try:
+            from services import sheets as sheets_svc
+            used_tracks = sheets_svc.get_music_history(sheets_client)
+            use_sheets = True
+        except Exception as e:
+            print(f"⚠️ Sheets music history unavailable ({e}), using local JSON fallback.")
+            used_tracks = _load_music_history()
+    else:
+        used_tracks = _load_music_history()
+
+    # Filter to only unused tracks
+    unused_filenames = [f for f in all_filenames if f not in used_tracks]
+
+    # If all tracks have been used, reset the history
+    if not unused_filenames:
+        print(f"🔄 All {len(all_filenames)} tracks played! Resetting rotation...")
+        if use_sheets:
+            from services import sheets as sheets_svc
+            sheets_svc.reset_music_history(sheets_client)
+        else:
+            _save_music_history([])
+        used_tracks = []
+        unused_filenames = all_filenames.copy()
+
+    # Pick a random track from the unused pool
+    chosen_filename = random.choice(unused_filenames)
+
+    # Find the full path for the chosen track
+    track = next(t for t in tracks if os.path.basename(t) == chosen_filename)
+
+    # Update history and save
+    if use_sheets:
+        from services import sheets as sheets_svc
+        sheets_svc.add_to_music_history(sheets_client, chosen_filename)
+    else:
+        used_tracks.append(chosen_filename)
+        _save_music_history(used_tracks)
+
+    remaining = len(unused_filenames) - 1
+    storage = "Sheets" if use_sheets else "local"
+    print(f"🎵 Selected track: {chosen_filename} ({remaining} unused tracks remaining) [{storage}]")
     return track
 
 
