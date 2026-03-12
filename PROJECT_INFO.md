@@ -103,9 +103,9 @@ MIND CRAFT/
 │   ├── instagram.py            # 📲 Instagram Reels publishing
 │   └── youtube.py              # 📺 YouTube Shorts uploading
 │
-├── Music/                      # 🎵 Background music tracks (11 files)
+├── Music/                      # 🎵 Background music tracks (9 files)
 │   ├── Various phonk/dark beats (.mp3, .m4a)
-│   └── (randomly selected per video)
+│   └── (round-robin rotation — every track plays before any repeats)
 │
 ├── images/                     # 🖼️  Generated images (temp, gitignored)
 ├── resources/
@@ -157,7 +157,7 @@ The pipeline runs as a single `python main.py` execution. Here's every step:
 
 ### Step 4: Create Video
 - Creates a **15-second** video at **1080×1350** resolution, **24 FPS**
-- Selects a **random** music track from the `Music/` folder (11 phonk/dark beats available)
+- Selects a music track using **round-robin rotation** from the `Music/` folder (9 phonk/dark beats available) — every track plays before any repeats, history tracked in Google Sheets (`Music_History` tab)
 - Applies **6 cinematic effects**:
   1. **Ken Burns Zoom**: Slow 1.0x → 1.10x zoom with subtle sine-wave breathing pulse
   2. **Camera Shake**: Random 1px jitter for energy (seeded per-frame)
@@ -372,7 +372,7 @@ This means the entire pipeline — from quote generation to publishing on Instag
 2. **Fallback chain**: Gemini primary → Gemini fallback model → hardcoded quotes
 3. **Multi-platform publishing**: Publishes to both Instagram AND YouTube in one run
 4. **Token type auto-detection**: Automatically detects Instagram vs Facebook API tokens
-5. **Random music selection**: Picks a different track each run for variety
+5. **Round-robin music rotation**: Tracks all used songs in Google Sheets (`Music_History` tab) — picks only from unused tracks, resets when all 9 have played. Persists across GitHub Actions runs. Falls back to local JSON tracking for offline dev.
 6. **White border removal**: Post-processes AI images to remove any white borders
 7. **Resilient uploads**: Google Drive primary → tmpfiles.org fallback for video hosting
 8. **Partial success handling**: Marks quote as complete if at least one platform succeeds
@@ -390,12 +390,12 @@ This means the entire pipeline — from quote generation to publishing on Instag
 | API integrations | 7 (Gemini ×2, Sheets, Drive, Instagram, YouTube, tmpfiles) |
 | Video effects | 6 cinematic effects + 4 audio/video fades |
 | Daily posts | 2 (9 AM + 7 PM IST) |
-| Music tracks available | 11 |
+| Music tracks available | 9 |
 | Hashtags per post | 20 (Instagram), 11 (YouTube) |
 | Video resolution | 1080×1350 (4:5 portrait) |
 | Video duration | 15 seconds |
 | Lines of Python code | ~1,000+ across all modules |
-| Fallback mechanisms | 5 (quote fallback, image model fallback, drive fallback, font fallback, token type detection) |
+| Fallback mechanisms | 6 (quote fallback, image model fallback, drive fallback, font fallback, token type detection, music history Sheets→JSON fallback) |
 
 ---
 
