@@ -15,6 +15,10 @@ GEMINI_IMAGE_MODEL = "models/gemini-2.5-flash-image"
 GEMINI_IMAGE_MODEL_FALLBACK = "models/gemini-2.0-flash-exp-image-generation"
 GEMINI_TEXT_MODEL = "models/gemini-2.5-flash"
 
+# ---- POLLINATIONS AI (Free Image Generation) ----
+USE_POLLINATIONS_IMAGE = True
+POLLINATIONS_MODEL = "flux"
+
 # ---- OPENROUTER (fallback for text) ----
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 

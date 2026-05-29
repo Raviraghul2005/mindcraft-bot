@@ -58,7 +58,7 @@ def _remove_white_borders(image_path):
 
 def generate_image(output_dir=None, quote=None):
     """
-    Generate an image using Gemini API.
+    Generate an image. Try Pollinations AI first (if enabled), then fall back to Gemini API.
     If a quote is provided, the image will be relevant to the quote's theme.
     Returns the path to the saved image file.
     """
@@ -72,15 +72,31 @@ def generate_image(output_dir=None, quote=None):
     else:
         prompt = config.IMAGE_PROMPT
 
-    # Try primary model first, then fallback
+    filename = os.path.join(output_dir, f"{uuid.uuid4()}.png")
+
+    # Try Pollinations AI first if enabled
+    if getattr(config, "USE_POLLINATIONS_IMAGE", False):
+        print(f"🎨 Generating image with Pollinations AI ({config.POLLINATIONS_MODEL})...")
+        try:
+            result = _call_pollinations_image(prompt)
+            if result:
+                with open(filename, "wb") as f:
+                    f.write(result)
+                # Post-process: remove any white borders
+                _remove_white_borders(filename)
+                print(f"📥 Image saved as {filename}")
+                return filename
+        except Exception as e:
+            print(f"⚠️ Pollinations AI failed: {e}")
+
+    # Fallback to Gemini image models
     models = [config.GEMINI_IMAGE_MODEL, config.GEMINI_IMAGE_MODEL_FALLBACK]
 
     for model in models:
-        print(f"🎨 Generating image with {model}...")
+        print(f"🎨 Generating image fallback with {model}...")
         try:
             result = _call_gemini_image(model, prompt)
             if result:
-                filename = os.path.join(output_dir, f"{uuid.uuid4()}.png")
                 with open(filename, "wb") as f:
                     f.write(result)
                 # Post-process: remove any white borders
@@ -94,6 +110,28 @@ def generate_image(output_dir=None, quote=None):
     raise RuntimeError("❌ All image generation models failed.")
 
 
+def _call_pollinations_image(prompt):
+    """
+    Call Pollinations AI free API to generate an image.
+    Returns raw image bytes or raises an Exception.
+    """
+    import urllib.parse
+    import random
+    encoded_prompt = urllib.parse.quote(prompt)
+    model = getattr(config, "POLLINATIONS_MODEL", "flux")
+    seed = random.randint(1, 99999999)
+    # Fetch 1080x1350, matching standard config
+    url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1080&height=1350&model={model}&seed={seed}&nologo=true&private=true"
+    
+    print(f"🌐 Calling Pollinations API: {url.split('?')[0]}?...")
+    resp = requests.get(url, timeout=120)
+    
+    if resp.status_code == 200:
+        return resp.content
+    else:
+        raise Exception(f"Pollinations API returned status code {resp.status_code}: {resp.text[:200]}")
+
+
 def _call_gemini_image(model, prompt):
     """
     Call Gemini API to generate an image.
@@ -103,7 +141,7 @@ def _call_gemini_image(model, prompt):
 
     resp = requests.post(url, json={
         "contents": [{"parts": [{"text": f"Generate an image: {prompt}"}]}],
-        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+        "generationConfig": {"responseModalalities": ["IMAGE", "TEXT"]},
     }, timeout=120)
 
     data = resp.json()
