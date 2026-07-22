@@ -18,3 +18,11 @@ music_history.json
 
 DEPLOYMENT_GUIDE.md
 PROJECT_INFO.md
+
+*_run.log
+*_run_error.log
+*_render.log
+*_render_error.log
+*_render_check.png
+new_quote_*.jpg
+new_quote_*.mp4
