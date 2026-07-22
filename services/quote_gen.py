@@ -1,32 +1,60 @@
-"""
-services/quote_gen.py — Auto-generate short, punchy motivational quotes via Gemini.
-"""
+"""Generate concise, original quotes via the Gemini API."""
 import requests
+
 import config
 
 
+_CLICHE_TERMS = (
+    "lion", "lions", "wolf", "wolves", "sheep", "storm", "storms",
+    "sword", "swords", "blade", "blades", "fire", "flames", "forged",
+    "warrior", "warriors", "battle", "battles", "greatness", "grind",
+    "hustle", "pain",
+)
+_CLICHE_PHRASES = (
+    "doesn't ask permission", "does not ask permission", "they buried you",
+    "they doubted you", "they can't break", "they cannot break",
+    "born to fight", "never give up", "never quit", "comfort is the enemy",
+    "opinions of", "lose sleep over",
+)
+
+
+def _is_usable_quote(quote):
+    """Keep concise lines while rejecting stock motivational language."""
+    normalized = " ".join(quote.split()).lower()
+    words = normalized.split()
+
+    if not 10 < len(normalized) < 200 or not 4 <= len(words) <= 28:
+        return False
+
+    if any(term in words for term in _CLICHE_TERMS):
+        return False
+
+    return not any(phrase in normalized for phrase in _CLICHE_PHRASES)
+
+
 def generate_story_quotes(count=10):
-    """
-    Generate short, punchy motivational quotes using Gemini API.
-    Returns a list of quote strings (1-2 sentences each).
-    """
-    prompt = f"""Generate exactly {count} short, punchy motivational quotes.
+    """Generate short, impactful quotes using Gemini API."""
+    prompt = f"""Generate exactly {count} short, punchy lines for a dark, cinematic self-improvement channel.
 
 Rules:
-- Each quote must be 1-2 sentences MAXIMUM (under 80 words)
-- Raw, powerful, and direct — hit hard in few words
-- Use metaphors from nature, war, fire, storms, lions, wolves, swords
+- Each quote must be 1-2 sentences, 4-28 words total
+- Make each line precise, plainspoken, and highly impactful
+- Write observations that feel earned, not speeches or slogans
+- Draw from ordinary effort: repetition, restraint, unfinished work, doubt, time, attention, and recovery
+- Let the reader reach the conclusion; do not explain the lesson
+- Avoid commands and direct address such as "you need to", "become", "fight", or "never quit"
+- Never use lions, wolves, sheep, storms, swords, blades, fire, warriors, battles, grinding, hustle, greatness, or pain
+- Never use an unnamed enemy such as "they" or "people" to manufacture conflict
 - No attribution, no author names, no quotation marks
 - Each quote separated by |||
-- Tone: dark, stoic, warrior mentality — NOT cheesy or generic
-- Think: something a battle-scarred warrior would say before a fight
+- Tone: calm, unsentimental, disciplined, and dark without being theatrical
 
 Examples of the style I want:
-- The storm doesn't ask permission. Neither should you.
-- A dull blade is useless. Sharpen yourself through pain.
-- They buried you. They didn't know you were a seed.
-- Wolves don't lose sleep over the opinions of sheep.
-- The fire that forged the sword didn't ask if it would hurt.
+- Some progress is quiet enough to be mistaken for nothing.
+- The work got easier when it stopped needing to feel important.
+- You can be uncertain and still be consistent.
+- Not every hard day needs a breakthrough. Some only need completion.
+- Discipline is often making tomorrow slightly less difficult.
 
 Now generate {count} unique quotes in that style, separated by |||"""
 
@@ -37,41 +65,39 @@ Now generate {count} unique quotes in that style, separated by |||"""
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.9, "maxOutputTokens": 2048},
         }, timeout=120)
-
         data = resp.json()
 
         if "error" in data:
-            print(f"❌ Gemini text error: {data['error'].get('message', '')}")
+            print(f"Gemini text error: {data['error'].get('message', '')}")
             return _fallback_quotes()
 
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        quotes = [q.strip() for q in text.split("|||") if q.strip()]
-        # Filter: keep only short punchy ones (under 200 chars)
-        quotes = [q for q in quotes if 10 < len(q) < 200]
+        quotes = [quote.strip() for quote in text.split("|||") if quote.strip()]
+        quotes = [quote for quote in quotes if _is_usable_quote(quote)]
 
         if len(quotes) < 3:
-            print("⚠️ Got too few quotes from Gemini, using fallbacks.")
+            print("Got too few usable quotes from Gemini, using fallbacks.")
             return _fallback_quotes()
 
-        print(f"✅ Generated {len(quotes)} quotes via Gemini.")
+        print(f"Generated {len(quotes)} quotes via Gemini.")
         return quotes[:count]
 
-    except Exception as e:
-        print(f"❌ Quote generation failed: {e}")
+    except Exception as exc:
+        print(f"Quote generation failed: {exc}")
         return _fallback_quotes()
 
 
 def _fallback_quotes():
     """Hardcoded fallback quotes in case the API fails."""
     return [
-        "The storm doesn't ask permission. Neither should you.",
-        "A dull blade is useless. Sharpen yourself through pain.",
-        "They buried you. They didn't know you were a seed.",
-        "Wolves don't lose sleep over the opinions of sheep.",
-        "The fire that forged the sword didn't ask if it would hurt.",
-        "You were born to fight. Not to surrender.",
-        "Comfort is the enemy of greatness.",
-        "Fall seven times. Stand up eight.",
-        "The lion doesn't turn around when the small dog barks.",
-        "Your pain is building something they can't break.",
+        "Some progress is quiet enough to be mistaken for nothing.",
+        "The work got easier when it stopped needing to feel important.",
+        "You can be uncertain and still be consistent.",
+        "Not every hard day needs a breakthrough. Some only need completion.",
+        "Discipline is often making tomorrow slightly less difficult.",
+        "A routine is a promise made before the mood arrives.",
+        "The result changed after the excuses became boring.",
+        "Most difficult things become ordinary through repetition.",
+        "There is no dramatic version of showing up again.",
+        "Finish the day before you judge it.",
     ]
