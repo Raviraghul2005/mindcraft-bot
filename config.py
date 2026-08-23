@@ -53,6 +53,12 @@ YT_REFRESH_TOKEN = os.getenv("YT_REFRESH_TOKEN", "")
 # ---- GOOGLE SHEETS ----
 SHEET_NAME = "Quote_Access"
 
+# ---- QUOTE STYLE ----
+# Fraction of each auto-replenished batch generated in the vivid (war/fire/nature
+# metaphor) style vs. the calm/plainspoken style. Tune this once Phase 3 analytics
+# (Style column in the sheet vs. YouTube Studio retention) confirm which wins.
+QUOTE_STYLE_VIVID_RATIO = 0.7
+
 # ---- IMAGE GENERATION PROMPT ----
 IMAGE_PROMPT = (
     "Berserk manga art style, Kentaro Miura, dark fantasy, "
@@ -64,7 +70,7 @@ IMAGE_PROMPT = (
 )
 
 # ---- VIDEO SETTINGS ----
-VIDEO_DURATION = 15  # seconds
+VIDEO_DURATION = 9  # seconds — shorter clears the ~65% Shorts retention threshold more easily and loops faster
 VIDEO_FPS = 24
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1350  # 4:5 aspect ratio for Instagram Reels

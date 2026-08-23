@@ -9,11 +9,40 @@ import requests
 import config
 
 
-def _build_prompt(quote):
+COMPOSITIONS = ("portrait", "wide_scene", "symbol")
+
+# Alternating these across videos keeps 500+ near-identical face portraits
+# from blurring together in the feed — see image_gen.pick_composition().
+_COMPOSITION_HINTS = {
+    "portrait": (
+        "Composition: an extreme close-up or bust-shot portrait of a single "
+        "battle-worn figure, dramatic emotion in the eyes and posture."
+    ),
+    "wide_scene": (
+        "Composition: a wide atmospheric landscape or environment shot — "
+        "mountains, a storm-lit horizon, a ruined battlefield, or a lone "
+        "figure small against a vast dark sky. NO close-up face."
+    ),
+    "symbol": (
+        "Composition: a single symbolic object rendered large and dramatic "
+        "in negative space — a blade, a lantern, a broken chain, a compass, "
+        "an ember, a raven — with NO human figure."
+    ),
+}
+
+
+def pick_composition(seed):
+    """Deterministically rotate through COMPOSITIONS based on `seed`
+    (e.g. the sheet row index) so consecutive videos vary visually."""
+    return COMPOSITIONS[seed % len(COMPOSITIONS)]
+
+
+def _build_prompt(quote, composition="portrait"):
     """
     Build an image prompt that matches the quote's theme.
     Combines the quote's meaning with the Berserk manga art style.
     """
+    composition_hint = _COMPOSITION_HINTS.get(composition, _COMPOSITION_HINTS["portrait"])
     prompt = (
         f"Create a powerful, cinematic image that visually represents this concept: \"{quote}\"\n\n"
         "Art style requirements:\n"
@@ -23,8 +52,7 @@ def _build_prompt(quote):
         "- Gritty, semi-realistic anime aesthetic\n"
         "- Heavy shadows, warm ochre and muted tones\n"
         "- The scene should be atmospheric and cinematic\n"
-        "- Can be a warrior, a landscape, an animal, a storm, fire, "
-        "a sword, a silhouette — whatever matches the quote's meaning\n"
+        f"- {composition_hint}\n"
         "- NO TEXT in the image. Pure visual art only.\n"
         "- CRITICAL: The artwork MUST fill the ENTIRE canvas edge-to-edge. "
         "NO white borders, NO white margins, NO white background, NO empty white space anywhere. "
@@ -56,10 +84,12 @@ def _remove_white_borders(image_path):
     result.save(image_path)
 
 
-def generate_image(output_dir=None, quote=None):
+def generate_image(output_dir=None, quote=None, composition="portrait"):
     """
     Generate an image. Try Pollinations AI first (if enabled), then fall back to Gemini API.
     If a quote is provided, the image will be relevant to the quote's theme.
+    `composition` (see COMPOSITIONS) varies the shot type for visual variety
+    across videos — pick it with pick_composition(row_index).
     Returns the path to the saved image file.
     """
     if output_dir is None:
@@ -68,7 +98,8 @@ def generate_image(output_dir=None, quote=None):
 
     # Build prompt based on quote or use default
     if quote:
-        prompt = _build_prompt(quote)
+        prompt = _build_prompt(quote, composition=composition)
+        print(f"🖌️ Composition: {composition}")
     else:
         prompt = config.IMAGE_PROMPT
 
@@ -141,7 +172,7 @@ def _call_gemini_image(model, prompt):
 
     resp = requests.post(url, json={
         "contents": [{"parts": [{"text": f"Generate an image: {prompt}"}]}],
-        "generationConfig": {"responseModalalities": ["IMAGE", "TEXT"]},
+        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
     }, timeout=120)
 
     data = resp.json()

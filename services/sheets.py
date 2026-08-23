@@ -38,26 +38,56 @@ def get_next_quote(client=None):
     return None, None, sheet
 
 
-def mark_complete(sheet, row_index):
-    """Mark a row as 'Complete' in the Status column."""
+def _get_or_add_column(sheet, headers, column_name):
+    """Return the 1-indexed column number for `column_name`, creating the
+    header (appending a new column) if it doesn't exist yet."""
+    if column_name in headers:
+        return headers.index(column_name) + 1
+    col = len(headers) + 1
+    sheet.update_cell(1, col, column_name)
+    headers.append(column_name)
+    return col
+
+
+def mark_complete(sheet, row_index, youtube_url=None):
+    """Mark a row as 'Complete' in the Status column.
+    Optionally records the published YouTube URL in a 'YouTube_URL' column
+    (auto-created if missing) so performance can later be filtered by style.
+    """
     headers = sheet.row_values(1)
     status_col = headers.index("Status") + 1
     sheet.update_cell(row_index, status_col, "Complete")
+
+    if youtube_url:
+        url_col = _get_or_add_column(sheet, headers, "YouTube_URL")
+        sheet.update_cell(row_index, url_col, youtube_url)
+
     print(f"✅ Marked row {row_index} as Complete in Google Sheets.")
 
 
 def append_quotes(sheet, quotes):
-    """Append a list of quotes to the sheet as new rows."""
+    """Append a list of quotes to the sheet as new rows.
+
+    `quotes` may be a list of strings, or a list of (quote_text, style)
+    tuples — in the latter case the style is recorded in a 'Style' column
+    (auto-created if missing) for later performance comparison.
+    """
     headers = sheet.row_values(1)
     quote_col = headers.index("Quote") + 1
     status_col = headers.index("Status") + 1
-    
-    for q in quotes:
-        row = [""] * max(quote_col, status_col)
-        row[quote_col - 1] = q
+
+    has_style = quotes and isinstance(quotes[0], (tuple, list))
+    style_col = _get_or_add_column(sheet, headers, "Style") if has_style else None
+
+    for entry in quotes:
+        quote_text, style = entry if has_style else (entry, None)
+        row = [""] * max(quote_col, status_col, style_col or 0)
+        row[quote_col - 1] = quote_text
         row[status_col - 1] = "Pending"
+        if style_col:
+            row[style_col - 1] = style
         sheet.append_row(row, value_input_option="RAW")
-    
+
     print(f"📝 Appended {len(quotes)} new quotes to the sheet.")
 
 

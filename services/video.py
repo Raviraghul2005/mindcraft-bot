@@ -2,14 +2,16 @@
 services/video.py — Create video with cinematic effects from a quote image + music.
 
 Effects:
-  - Fade in (0.8s) / Fade out (1.0s)
-  - Slow Ken Burns zoom (1.0x → 1.10x over 20s)
+  - Fade in (0.12s, kept short so it doesn't wash out the opening flash) / Fade out (0.3s, loop-friendly)
+  - Slow Ken Burns zoom (pre-zoomed ~1.03x → ~1.12x over the clip)
   - Vignette overlay (dark edges)
   - Dynamic film grain (visible, textured)
   - Camera shake/jitter (subtle random movement for energy)
-  - Flash pulse at text reveal (~2s mark)
-  - Brief glitch/RGB split effect (~1.5s and ~12s)
-  - Audio fade in (1.0s) / fade out (2.0s)
+  - Flash pulse right at the open (hook, before a viewer can swipe) + subtle midpoint pulse
+  - Brief glitch/RGB split effect paired with the opening flash + one near the end
+  - Quote text fades/slides in over the open (see services/image_overlay.py for the layer)
+  - Follow CTA fades in during the last ~1.2s
+  - Audio fade in (0.3s) / fade out (0.6s)
 """
 import os
 import glob
@@ -125,12 +127,17 @@ def _create_vignette(width, height):
     return vig_array
 
 
-def _apply_ken_burns(frame, t, duration, zoom_factor=1.10):
-    """Apply slow zoom with subtle breathing pulse."""
+def _apply_ken_burns(frame, t, duration, start_scale=1.03, end_scale=1.12):
+    """Apply slow zoom with subtle breathing pulse.
+
+    Starts already slightly zoomed in (instead of exactly 1.0x) so the very
+    first frame reads as "landed on a shot" rather than a flat static image —
+    part of making the opening more of a scroll-stopping hook.
+    """
     h, w = frame.shape[:2]
-    # Base zoom: linear 1.0 → zoom_factor
+    # Base zoom: linear start_scale → end_scale
     progress = t / duration
-    base_scale = 1.0 + (zoom_factor - 1.0) * progress
+    base_scale = start_scale + (end_scale - start_scale) * progress
     # Add subtle breathing pulse (sine wave)
     breath = np.sin(t * 1.2) * 0.008  # very subtle oscillation
     scale = base_scale + breath
@@ -182,37 +189,93 @@ def _apply_glitch(frame, intensity=0.3):
     return result
 
 
-def _get_flash_intensity(t):
+def _triangle_pulse(t, center, half_width, peak):
+    """A triangular pulse: 0 outside [center-half_width, center+half_width], peaking at `peak`."""
+    dist = abs(t - center)
+    if dist >= half_width:
+        return 0.0
+    return peak * (1 - dist / half_width)
+
+
+def _get_flash_intensity(t, duration):
     """Return flash brightness multiplier at time t.
-    Brief white flash at ~2.0s (text reveal moment) and subtle pulse at ~10s."""
-    flash = 0.0
-    # Main flash at text reveal (t=2.0s), duration ~0.3s
-    if 1.8 <= t <= 2.3:
-        # Quick triangle flash
-        if t <= 2.0:
-            flash = (t - 1.8) / 0.2 * 0.25
-        else:
-            flash = max(0, (2.3 - t) / 0.3 * 0.25)
-    # Subtle pulse at midpoint
-    elif 9.5 <= t <= 10.0:
-        flash = (1 - abs(t - 9.75) / 0.25) * 0.08
-    return flash
 
-
-def _get_glitch_intensity(t):
-    """Return glitch intensity at time t. Brief glitches at specific moments."""
-    # Quick glitch at ~1.5s (before text reveal)
-    if 1.3 <= t <= 1.6:
-        return 0.5 * (1 - abs(t - 1.45) / 0.15)
-    # Another at ~12s for variety
-    if 11.8 <= t <= 12.1:
-        return 0.4 * (1 - abs(t - 11.95) / 0.15)
-    return 0.0
-
-
-def create_video(quote_image_path, music_track_path, output_path=None):
+    The main flash sits right at the open (absolute timing, not scaled to
+    duration — the swipe-away decision happens in the first ~1-2s regardless
+    of how long the video is) so there's a scroll-stopping visual event
+    before a viewer decides to swipe, instead of ~2s in. A subtle secondary
+    pulse near the midpoint adds texture.
     """
-    Create a 20-second video with engaging effects.
+    return max(
+        _triangle_pulse(t, center=0.1, half_width=0.15, peak=0.30),
+        _triangle_pulse(t, center=duration * 0.5, half_width=0.25, peak=0.08),
+    )
+
+
+def _get_glitch_intensity(t, duration):
+    """Return glitch intensity at time t.
+
+    Paired with the opening flash (sells a "cut landed here" feel), plus
+    one more glitch near the end for texture.
+    """
+    return max(
+        _triangle_pulse(t, center=0.15, half_width=0.15, peak=0.5),
+        _triangle_pulse(t, center=duration * 0.85, half_width=0.15, peak=0.4),
+    )
+
+
+def _ease_smoothstep(p):
+    p = max(0.0, min(1.0, p))
+    return p * p * (3 - 2 * p)
+
+
+def _get_text_reveal(t, window=0.35):
+    """Fade/slide-in progress (0-1) for the quote text, landing together with
+    the opening flash/glitch instead of being static from frame 0."""
+    return _ease_smoothstep(t / window)
+
+
+def _get_cta_reveal(t, duration, window=1.2, fade=0.3):
+    """Fade-in progress (0-1) for the follow CTA, appearing only in the
+    last `window` seconds — after a viewer has already stuck around."""
+    start = max(0.0, duration - window)
+    if t < start:
+        return 0.0
+    return _ease_smoothstep((t - start) / fade)
+
+
+def _shift_vertical(rgba_array, offset_px):
+    """Shift an RGBA array down by offset_px (float, rounded), filling the
+    gap with transparent/zero rows. Used for the text slide-in."""
+    offset_px = int(round(offset_px))
+    if offset_px == 0:
+        return rgba_array
+    h = rgba_array.shape[0]
+    shifted = np.zeros_like(rgba_array)
+    if offset_px > 0:
+        shifted[offset_px:, :, :] = rgba_array[:h - offset_px, :, :]
+    else:
+        o = -offset_px
+        shifted[:h - o, :, :] = rgba_array[o:, :, :]
+    return shifted
+
+
+def _composite_layer(frame, layer_rgb, layer_alpha):
+    """Alpha-composite an RGB layer (float32, 0-255) with per-pixel alpha
+    (float32, 0-1, shape (h, w, 1)) onto `frame` (float32, 0-255)."""
+    return frame * (1 - layer_alpha) + layer_rgb * layer_alpha
+
+
+def create_video(quote_image_path, text_layer, cta_layer, music_track_path, output_path=None):
+    """
+    Create a short video (config.VIDEO_DURATION seconds) with engaging effects.
+
+    `text_layer` and `cta_layer` are transparent RGBA PIL Images (see
+    services/image_overlay.py) composited on top of the fully-processed
+    background each frame, with their own fade/slide-in animation — this is
+    what makes the quote text "land" as part of the opening hook instead of
+    being static from frame 0.
+
     Returns the output video file path.
     """
     if output_path is None:
@@ -229,10 +292,17 @@ def create_video(quote_image_path, music_track_path, output_path=None):
     # --- Create vignette overlay ---
     vignette = _create_vignette(w, h)
 
+    # --- Precompute text/CTA layers as float32 RGB + alpha arrays ---
+    text_rgba = np.array(text_layer.convert("RGBA")).astype(np.float32)
+    text_rgb, text_alpha = text_rgba[:, :, :3], text_rgba[:, :, 3:4] / 255.0
+
+    cta_rgba = np.array(cta_layer.convert("RGBA")).astype(np.float32)
+    cta_rgb, cta_alpha = cta_rgba[:, :, :3], cta_rgba[:, :, 3:4] / 255.0
+
     # --- Build the main clip with all effects ---
     def make_frame(t):
-        # 1. Ken Burns zoom with breathing
-        frame = _apply_ken_burns(base_frame, t, duration, zoom_factor=1.10)
+        # 1. Ken Burns zoom with breathing (starts slightly pre-zoomed — see _apply_ken_burns)
+        frame = _apply_ken_burns(base_frame, t, duration)
 
         # 2. Camera shake (subtle jitter)
         frame = _apply_camera_shake(frame, t)
@@ -246,23 +316,39 @@ def create_video(quote_image_path, music_track_path, output_path=None):
         grain = np.random.normal(0, 12, frame.shape).astype(np.float32)
         frame = frame + grain
 
-        # 5. Flash pulse
-        flash = _get_flash_intensity(t)
+        # 5. Flash pulse (opening punch-in + subtle midpoint pulse)
+        flash = _get_flash_intensity(t, duration)
         if flash > 0:
             frame = frame + flash * 255
 
-        # 6. Glitch effect
-        glitch = _get_glitch_intensity(t)
+        # 6. Glitch effect (paired with the opening flash + one near the end)
+        glitch = _get_glitch_intensity(t, duration)
         if glitch > 0:
             frame = np.clip(frame, 0, 255).astype(np.uint8)
             frame = _apply_glitch(frame, glitch).astype(np.float32)
+
+        # 7. Quote text — fades/slides in over the open, landing with the hook.
+        #    Composited after grain/glitch so the text itself stays crisp/legible.
+        reveal = _get_text_reveal(t)
+        if reveal > 0:
+            slide = (1 - reveal) * 24  # px, settles to 0 as reveal completes
+            layer_rgb = _shift_vertical(text_rgb, slide) if slide else text_rgb
+            layer_alpha = _shift_vertical(text_alpha, slide) if slide else text_alpha
+            frame = _composite_layer(frame, layer_rgb, layer_alpha * reveal)
+
+        # 8. Follow CTA — fades in only in the last stretch, once someone has stuck around.
+        cta_reveal = _get_cta_reveal(t, duration)
+        if cta_reveal > 0:
+            frame = _composite_layer(frame, cta_rgb, cta_alpha * cta_reveal)
 
         return np.clip(frame, 0, 255).astype(np.uint8)
 
     main_clip = VideoClip(make_frame, duration=duration).set_fps(config.VIDEO_FPS)
 
     # --- Apply fade in/out ---
-    main_clip = main_clip.fadein(0.8).fadeout(1.0)
+    # Fade-in is kept very short so it doesn't wash out the opening flash/glitch
+    # hook. Fade-out is short and symmetric-ish so a loop replay feels tight.
+    main_clip = main_clip.fadein(0.12).fadeout(0.3)
 
     # --- Load and prepare audio ---
     audio = AudioFileClip(music_track_path)
@@ -274,14 +360,14 @@ def create_video(quote_image_path, music_track_path, output_path=None):
         audio = concatenate_audioclips([audio] * loops_needed)
 
     audio = audio.subclip(0, duration)
-    audio = audio.audio_fadein(1.0).audio_fadeout(2.0)
+    audio = audio.audio_fadein(0.3).audio_fadeout(0.6)
 
     # --- Combine ---
     final = main_clip.set_audio(audio)
 
     # --- Write output ---
     print(f"🎬 Creating video: {output_path} ({duration}s, {w}x{h}, {config.VIDEO_FPS}fps)")
-    print(f"   Effects: Ken Burns zoom, camera shake, grain, vignette, flash pulse, glitch")
+    print(f"   Effects: Ken Burns zoom, camera shake, grain, vignette, flash pulse, glitch, text reveal, CTA")
     final.write_videofile(
         output_path,
         fps=config.VIDEO_FPS,
