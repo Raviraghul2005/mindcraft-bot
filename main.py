@@ -3,9 +3,9 @@ main.py — MIND CRAFT Pipeline Orchestrator
 
 Runs the full pipeline:
   1. Get/generate quote from Google Sheet
-  2. Generate Berserk manga-style image via Gemini
-  3. Overlay quote text on image
-  4. Create video with effects + music
+  2. Generate Berserk manga-style image via Gemini/Pollinations (composition rotates for variety)
+  3. Build animated quote text + follow-CTA overlay layers
+  4. Create video with effects + music (text/CTA composited & animated per-frame)
   5. Upload to Google Drive → Instagram Reels + YouTube Shorts
   6. Mark row as Complete + cleanup
 
@@ -46,7 +46,7 @@ def main():
         
         if not quote_text:
             print("🔄 All rows complete. Auto-generating new quotes...")
-            new_quotes = quote_gen.generate_story_quotes(count=10)
+            new_quotes = quote_gen.generate_quote_batch(count=10)
             sheets.append_quotes(sheet, new_quotes)
             quote_text, row_index, sheet = sheets.get_next_quote(client)
     except Exception as e:
@@ -64,14 +64,17 @@ def main():
     
     # ---- Step 2: Generate image ----
     print("🎨 Generating image relevant to the quote...")
-    image_path = image_gen.generate_image(quote=quote_text)
+    composition = image_gen.pick_composition(row_index)
+    image_path = image_gen.generate_image(quote=quote_text, composition=composition)
     print()
-    
-    # ---- Step 3: Overlay quote text ----
-    print("✍️  Overlaying quote text on image...")
-    quote_image_path = image_overlay.overlay_quote(image_path, quote_text)
+
+    # ---- Step 3: Build animated quote text + follow-CTA overlay layers ----
+    print("✍️  Preparing animated quote text overlay...")
+    text_layer = image_overlay.build_text_layer(quote_text, config.VIDEO_WIDTH, config.VIDEO_HEIGHT)
+    cta_layer = image_overlay.build_cta_layer(config.VIDEO_WIDTH, config.VIDEO_HEIGHT)
+    quote_image_path = image_overlay.save_preview(image_path, text_layer, cta_layer)
     print()
-    
+
     # ---- Step 4: Create video ----
     print("🎬 Creating video with effects and music...")
     # Pass sheets client for music history persistence (works on GitHub Actions)
@@ -81,7 +84,7 @@ def main():
     except Exception:
         pass  # Will fall back to local JSON tracking
     music_track = video.get_music_track(row_index, sheets_client=sheets_client)
-    video_path = video.create_video(quote_image_path, music_track)
+    video_path = video.create_video(image_path, text_layer, cta_layer, music_track)
     print()
     
     if dry_run:
@@ -125,7 +128,7 @@ def main():
     # ---- Step 8: Mark complete ----
     # Mark complete if EITHER platform succeeded (don't block on one failing)
     if ig_success or yt_id:
-        sheets.mark_complete(sheet, row_index)
+        sheets.mark_complete(sheet, row_index, youtube_url=yt_url)
     else:
         print("⚠️ Both uploads failed. Row NOT marked complete.")
     
