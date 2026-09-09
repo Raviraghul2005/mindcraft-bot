@@ -15,6 +15,12 @@ Usage:
 """
 import os
 import sys
+
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import argparse
 import config
 from services import sheets, quote_gen, image_gen, image_overlay, video, drive_upload, instagram, youtube

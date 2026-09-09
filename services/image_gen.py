@@ -86,7 +86,8 @@ def _remove_white_borders(image_path):
 
 def generate_image(output_dir=None, quote=None, composition="portrait"):
     """
-    Generate an image. Try Pollinations AI first (if enabled), then fall back to Gemini API.
+    Generate an image. Tries Google Imagen 3 (imagen-3.0-generate-002) first.
+    Falls back to Gemini multimodal models, and finally to Pollinations AI.
     If a quote is provided, the image will be relevant to the quote's theme.
     `composition` (see COMPOSITIONS) varies the shot type for visual variety
     across videos — pick it with pick_composition(row_index).
@@ -105,40 +106,125 @@ def generate_image(output_dir=None, quote=None, composition="portrait"):
 
     filename = os.path.join(output_dir, f"{uuid.uuid4()}.png")
 
-    # Try Pollinations AI first if enabled
-    if getattr(config, "USE_POLLINATIONS_IMAGE", False):
-        print(f"🎨 Generating image with Pollinations AI ({config.POLLINATIONS_MODEL})...")
+    # 1. Primary: Google Imagen 3
+    if config.GEMINI_API_KEY and not getattr(config, "USE_POLLINATIONS_IMAGE", False):
+        print(f"🎨 Generating image with Google Imagen 3 ({getattr(config, 'IMAGEN_MODEL', 'imagen-3.0-generate-002')})...")
         try:
-            result = _call_pollinations_image(prompt)
+            aspect_ratio = getattr(config, "IMAGEN_ASPECT_RATIO", "3:4")
+            result = _call_imagen_3(prompt, aspect_ratio=aspect_ratio)
             if result:
                 with open(filename, "wb") as f:
                     f.write(result)
-                # Post-process: remove any white borders
                 _remove_white_borders(filename)
                 print(f"📥 Image saved as {filename}")
                 return filename
         except Exception as e:
-            print(f"⚠️ Pollinations AI failed: {e}")
+            print(f"⚠️ Google Imagen 3 failed: {e}")
 
-    # Fallback to Gemini image models
-    models = [config.GEMINI_IMAGE_MODEL, config.GEMINI_IMAGE_MODEL_FALLBACK]
+    # 2. Secondary fallback: Gemini multimodal image generation models
+    if config.GEMINI_API_KEY:
+        fallback_models = [
+            getattr(config, "GEMINI_IMAGE_MODEL_FALLBACK", "models/gemini-2.0-flash-exp-image-generation")
+        ]
+        for model in fallback_models:
+            if not model:
+                continue
+            print(f"🎨 Generating image fallback with Gemini ({model})...")
+            try:
+                result = _call_gemini_image(model, prompt)
+                if result:
+                    with open(filename, "wb") as f:
+                        f.write(result)
+                    _remove_white_borders(filename)
+                    print(f"📥 Image saved as {filename}")
+                    return filename
+            except Exception as e:
+                print(f"⚠️ {model} failed: {e}")
 
-    for model in models:
-        print(f"🎨 Generating image fallback with {model}...")
-        try:
-            result = _call_gemini_image(model, prompt)
-            if result:
-                with open(filename, "wb") as f:
-                    f.write(result)
-                # Post-process: remove any white borders
-                _remove_white_borders(filename)
-                print(f"📥 Image saved as {filename}")
-                return filename
-        except Exception as e:
-            print(f"⚠️ {model} failed: {e}")
-            continue
+    # 3. Tertiary fallback: Pollinations AI (Flux)
+    print(f"🎨 Falling back to Pollinations AI ({config.POLLINATIONS_MODEL})...")
+    try:
+        result = _call_pollinations_image(prompt)
+        if result:
+            with open(filename, "wb") as f:
+                f.write(result)
+            _remove_white_borders(filename)
+            print(f"📥 Image saved as {filename}")
+            return filename
+    except Exception as e:
+        print(f"⚠️ Pollinations AI fallback failed: {e}")
 
     raise RuntimeError("❌ All image generation models failed.")
+
+
+def _call_imagen_3(prompt, aspect_ratio="3:4"):
+    """
+    Call Google Imagen 3 (imagen-3.0-generate-002) to generate a high quality image.
+    Tries google-genai SDK first, falls back to direct REST API.
+    """
+    model = getattr(config, "IMAGEN_MODEL", "imagen-3.0-generate-002")
+    api_key = config.GEMINI_API_KEY
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not configured.")
+
+    # 1. Try google-genai SDK
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=api_key)
+        print(f"✨ Calling Imagen 3 via google-genai SDK ({model})...")
+        response = client.models.generate_images(
+            model=model,
+            prompt=prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio=aspect_ratio,
+                output_mime_type="image/jpeg",
+            ),
+        )
+        if response.generated_images:
+            return response.generated_images[0].image.image_bytes
+    except ImportError:
+        pass
+    except Exception as e:
+        print(f"⚠️ Imagen 3 SDK call failed: {e}. Trying REST API endpoint...")
+
+    # 2. Direct REST API call
+    return _call_imagen_rest(prompt, aspect_ratio=aspect_ratio)
+
+
+def _call_imagen_rest(prompt, aspect_ratio="3:4"):
+    """
+    Direct REST API call to generativelanguage.googleapis.com for Imagen 3 predict.
+    """
+    model = getattr(config, "IMAGEN_MODEL", "imagen-3.0-generate-002")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict?key={config.GEMINI_API_KEY}"
+    payload = {
+        "instances": [{"prompt": prompt}],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": aspect_ratio,
+            "outputOptions": {
+                "mimeType": "image/jpeg"
+            }
+        }
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": config.GEMINI_API_KEY,
+    }
+    resp = requests.post(url, json=payload, headers=headers, timeout=120)
+    data = resp.json()
+
+    if "error" in data:
+        raise Exception(data["error"].get("message", str(data["error"])))
+
+    if "predictions" in data and data["predictions"]:
+        b64_data = data["predictions"][0].get("bytesBase64Encoded")
+        if b64_data:
+            return base64.b64decode(b64_data)
+
+    raise Exception(f"No image data in Imagen 3 response: {str(data)[:200]}")
 
 
 def _call_pollinations_image(prompt):

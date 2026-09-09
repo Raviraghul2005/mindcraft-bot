@@ -9,14 +9,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ---- GEMINI ----
+# ---- GEMINI & IMAGEN ----
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_IMAGE_MODEL = "models/gemini-2.5-flash-image"
+IMAGEN_MODEL = "imagen-3.0-generate-002"
+IMAGEN_ASPECT_RATIO = "3:4"  # 3:4 aspect ratio closely matches 1080x1350 (4:5)
+GEMINI_IMAGE_MODEL = "imagen-3.0-generate-002"
 GEMINI_IMAGE_MODEL_FALLBACK = "models/gemini-2.0-flash-exp-image-generation"
 GEMINI_TEXT_MODEL = "models/gemini-2.5-flash"
 
-# ---- POLLINATIONS AI (Free Image Generation) ----
-USE_POLLINATIONS_IMAGE = True
+# ---- POLLINATIONS AI (Fallback Image Generation) ----
+USE_POLLINATIONS_IMAGE = False
 POLLINATIONS_MODEL = "flux"
 
 # ---- OPENROUTER (fallback for text) ----
